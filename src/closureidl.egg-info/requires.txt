@@ -1,0 +1,4 @@
+appdirs>=1.2.0
+Beaker>=1.6.3
+decorator
+requests>=0.10
