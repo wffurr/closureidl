@@ -1,0 +1,6 @@
+IDL parser from Dart 1.7:
+https://code.google.com/p/dart/source/browse/#svn%2Fbranches%2F1.7%2Fdart%2Ftools%2Fdom%2Fscripts
+
+Including some utilities files from Blink:
+https://chromium.googlesource.com/chromium/blink/+/20f550d1629b4a61a51a03abfecfec12cdef2b76/Source/bindings/scripts/
+

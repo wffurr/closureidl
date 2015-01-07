@@ -511,7 +511,7 @@ class PegParser(object):
 
         expected = ' or '.join(map(to_str, set.keys()))
         found = state.text[state.max_pos:state.max_pos + 1]
-        message = 'Expected %s but "%s" found: "%s"' % \
+        message = 'Expected %s but found "%s": "%s"' % \
           (expected, found, lineData)
       raise SyntaxError(
         'At line %s offset %s: %s' % \

@@ -7,7 +7,7 @@ import re
 import subprocess
 import tempfile
 
-from .pegparser import *
+from pegparser import *
 
 # IDL grammar variants.
 WEBIDL_SYNTAX = 0
@@ -49,7 +49,7 @@ class IDLParser(object):
           return fremontcut_syntax
         return w3c_syntax
       else:
-        raise RuntimeError('unsupported IDL syntax %s' % self._syntax)
+        raise RuntimeError('unsupported IDL syntax %s' % syntax)
 
     # The following grammar is based on the Web IDL's LL(1) grammar
     # (specified in: http://dev.w3.org/2006/webapi/WebIDL/#idl-grammar).
@@ -68,9 +68,15 @@ class IDLParser(object):
       return syntax_switch(
         # Web IDL:
         OR(Module, Interface, ExceptionDef, TypeDef, ImplStmt,
-           ValueTypeDef, Const),
+           ValueTypeDef, Const, Enum),
         # WebKit:
-        OR(Module, Interface))
+        OR(Module, Interface, Enum, TypeDef, ImplStmt, CallbackDeclaration))
+
+    def Enum():
+      def StringLiteral():
+        return re.compile(r'"[\w:]*"')
+
+      return ['enum', Id, '{', MAYBE(MANY(StringLiteral, ',')), '}', ';']
 
     def Module():
       return syntax_switch(
@@ -84,13 +90,22 @@ class IDLParser(object):
         [MAYBE(_Annotations), MAYBE(ExtAttrs), 'module', Id,
          '{', _Definitions, '}', MAYBE(';')])
 
+    def CallbackDeclaration():
+      return [Callback, Type, '=', Type,'(', _Arguments, ')', ';']
+
+    def Callback():
+      return ['callback']
+
+    def Partial():
+      return ['partial']
+
     def Interface():
       return syntax_switch(
         # Web IDL:
-        [MAYBE(ExtAttrs), 'interface', Id, MAYBE(_ParentInterfaces),
+        [MAYBE(ExtAttrs), MAYBE(Partial), MAYBE(Callback), 'interface', Id, MAYBE(_ParentInterfaces),
          MAYBE(['{', MAYBE(MANY(_Member)), '}']), ';'],
         # WebKit:
-        [OR('interface', 'exception'), MAYBE(ExtAttrs), Id, MAYBE(_ParentInterfaces),
+        [MAYBE(ExtAttrs), MAYBE(Partial), MAYBE(Callback), OR('interface', 'exception'), MAYBE(ExtAttrs), Id, MAYBE(_ParentInterfaces),
          MAYBE(['{', MAYBE(MANY(_Member)), '}']), MAYBE(';')],
         # FremontCut:
         [MAYBE(_Annotations), MAYBE(ExtAttrs), 'interface',
@@ -169,21 +184,16 @@ class IDLParser(object):
       return syntax_switch(
         # Web IDL:
         [MAYBE(ExtAttrs), MAYBE(Stringifier), MAYBE(ReadOnly),
-         'attribute', Type, Id, MAYBE(_AttrRaises), ';'],
+         'attribute', Type, Id, ';'],
         # WebKit:
-        [MAYBE(Stringifier), MAYBE(ReadOnly), 'attribute',
-         MAYBE(ExtAttrs), Type, Id, MAYBE(_AttrRaises), ';'],
+        [
+          MAYBE(Stringifier),
+          MAYBE(ExtAttrs), MAYBE(Static), MAYBE(ReadOnly), 'attribute', MAYBE(ExtAttrs),
+          Type, Id, ';'],
         # FremontCut:
         [MAYBE(_Annotations), MAYBE(ExtAttrs),
          MAYBE(_AttrGetterSetter), MAYBE(Stringifier), MAYBE(ReadOnly),
-         'attribute', Type, Id, MAYBE(_AttrRaises), ';'])
-
-    def _AttrRaises():
-      return syntax_switch(
-        # Web IDL:
-        MANY(OR(GetRaises, SetRaises)),
-        # WebKit:
-        MANY(OR(GetRaises, SetRaises, Raises), separator=','))
+         'attribute', Type, Id, ';'])
 
     # Special fremontcut feature:
     def _AttrGetterSetter():
@@ -198,35 +208,18 @@ class IDLParser(object):
     def ReadOnly():
       return 'readonly'
 
-    def GetRaises():
-      return syntax_switch(
-        # Web IDL:
-        ['getraises', '(', _ScopedNames, ')'],
-        # WebKit:
-        ['getter', 'raises', '(', _ScopedNames, ')'])
-
-    def SetRaises():
-      return syntax_switch(
-        # Web IDL:
-        ['setraises', '(', _ScopedNames, ')'],
-        # WebKit:
-        ['setter', 'raises', '(', _ScopedNames, ')'])
-
     # Operation:
     def Operation():
       return syntax_switch(
         # Web IDL:
         [MAYBE(ExtAttrs), MAYBE(Static), MAYBE(Stringifier), MAYBE(_Specials),
-         ReturnType, MAYBE(Id), '(', _Arguments, ')', MAYBE(Raises),
-         ';'],
+         ReturnType, MAYBE(Id), '(', _Arguments, ')', ';'],
         # WebKit:
-        [MAYBE(ExtAttrs), MAYBE(Static),
-         ReturnType, MAYBE(Id), '(', _Arguments, ')',
-         MAYBE(Raises), ';'],
+        [MAYBE(ExtAttrs), MAYBE(Static), MAYBE(_Specials),
+         ReturnType, MAYBE(Id), '(', _Arguments, ')', ';'],
         # FremontCut:
         [MAYBE(_Annotations), MAYBE(ExtAttrs), MAYBE(Static), MAYBE(Stringifier),
-         MAYBE(_Specials), ReturnType, MAYBE(Id), '(', _Arguments, ')',
-         MAYBE(Raises), ';'])
+         MAYBE(_Specials), ReturnType, MAYBE(Id), '(', _Arguments, ')', ';'])
 
     def Static():
       return 'static'
@@ -240,9 +233,6 @@ class IDLParser(object):
     def Stringifier():
       return 'stringifier'
 
-    def Raises():
-      return ['raises', '(', _ScopedNames, ')']
-
     # Operation arguments:
     def _Arguments():
       return MAYBE(MANY(Argument, ','))
@@ -253,8 +243,7 @@ class IDLParser(object):
         [MAYBE(ExtAttrs), MAYBE(Optional), MAYBE('in'),
          MAYBE(Optional), Type, MAYBE(AnEllipsis), Id],
         # WebKit:
-        [MAYBE(Optional), MAYBE('in'), MAYBE(Optional),
-         MAYBE(ExtAttrs), Type, Id])
+        [MAYBE(ExtAttrs), MAYBE(Optional), Type, MAYBE(AnEllipsis), Id])
 
     def Optional():
       return 'optional'
@@ -277,19 +266,26 @@ class IDLParser(object):
     def Type():
       return _Type
 
+    def UnionType():
+      return ['(', Type, 'or', Type, ')']
+
     def ReturnType():
-      return OR(VoidType, _Type)
+      return OR(VoidType, _Type, UnionType)
 
     def InterfaceType():
       return ScopedName
 
-    def _Type():
-      return OR(AnyArrayType, AnyType, ObjectType, _NullableType)
+    def ArrayModifiers():
+      return re.compile(r'(\[\])+')
 
-    def _NullableType():
+    def _Type():
+      return OR(
+          [OR(AnyType, ObjectType), MAYBE([ArrayModifiers, MAYBE(Nullable)])],
+          [_NullableNonArrayType(), MAYBE(ArrayModifiers), MAYBE(Nullable)])
+
+    def _NullableNonArrayType():
       return [OR(_IntegerType, BooleanType, OctetType, FloatType,
-             DoubleType, SequenceType, DOMStringArrayType, ScopedName),
-          MAYBE(Nullable)]
+             DoubleType, SequenceType, ScopedName)]
 
     def Nullable():
       return '?'
@@ -299,10 +295,6 @@ class IDLParser(object):
 
     def AnyType():
       return 'any'
-
-    def AnyArrayType():
-      # TODO(sra): Do more general handling of array types.
-      return 'any[]'
 
     def ObjectType():
       return re.compile(r'(object|Object)\b')   # both spellings.
@@ -350,9 +342,6 @@ class IDLParser(object):
     def ScopedName():
       return re.compile(r'[\w\_\:\.\<\>]+')
 
-    def DOMStringArrayType():
-      return 'DOMString[]'
-
     # Extended Attributes:
     def ExtAttrs():
       return ['[', MAYBE(MANY(ExtAttr, ',')), ']']
@@ -361,7 +350,7 @@ class IDLParser(object):
       return [Id, MAYBE(OR(['=', ExtAttrValue], ExtAttrArgList))]
 
     def ExtAttrValue():
-      return OR(ExtAttrFunctionValue, re.compile(r'[\w&0-9:\-\|]+'))
+      return OR(ExtAttrFunctionValue, re.compile(r'[\w&0-9:\-\| ]+'), re.compile(r'"[^"]+"\|"[^"]+"'), re.compile(r'"[^"]+"'))
 
     def ExtAttrFunctionValue():
       return [Id, ExtAttrArgList]
@@ -396,47 +385,14 @@ class IDLParser(object):
           re.compile(r'#.*'),
           re.compile(r'/\*.*?\*/', re.S))
 
-  def _pre_process(self, content, defines, includePaths):
-    """Pre-processes the content using gcc.
-
-    WebKit IDLs require pre-processing by gcc. This is done by invoking
-    gcc in a sub-process and capturing the results.
-
-    Returns:
-      The result of running gcc on the content.
-
-    Args:
-      content -- text to process.
-      defines -- an array of pre-processor defines.
-      includePaths -- an array of path strings.
-    """
-    # FIXME: Handle gcc not found, or any other processing errors
-    gcc = 'gcc'
-    cmd = [gcc, '-E', '-P', '-C', '-x', 'c++'];
-    for define in defines:
-      cmd.append('-D%s' % define)
-    cmd.append('-')
-    pipe = subprocess.Popen(cmd, stdin=subprocess.PIPE,
-      stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    (content, stderr) = pipe.communicate(content)
-    return content
-
-  def parse(self, content, defines=[], includePaths=[]):
+  def parse(self, content):
     """Parse the give content string.
-
-    The WebKit IDL syntax also allows gcc pre-processing instructions.
-    Lists of defined variables and include paths can be provided.
 
     Returns:
       An abstract syntax tree (AST).
 
     Args:
       content -- text to parse.
-      defines -- an array of pre-processor defines.
-      includePaths -- an array of path strings used by the
-        gcc pre-processor.
     """
-    if self._syntax == WEBKIT_SYNTAX:
-      content = self._pre_process(content, defines, includePaths)
 
     return self._pegparser.parse(content)
