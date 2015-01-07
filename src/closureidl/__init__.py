@@ -91,7 +91,7 @@ def _get_local_resource(cache, url):
 def _path_to_url(url):
     return _urlparse(url, scheme="file").geturl()
     
-def get_tree(url, use_cache=True, syntax=_idlparser.WEBKIT_SYNTAX):
+def get_tree(url, use_cache=False, syntax=_idlparser.WEBKIT_SYNTAX):
     s_url = _urlparse(url)
     
     if s_url.scheme in ["http", "https"]:
@@ -108,8 +108,6 @@ def get_tree(url, use_cache=True, syntax=_idlparser.WEBKIT_SYNTAX):
     cache = cache_mgr.get_cache(url)
     cached, content = method(cache, url)
 
-    print url
-    
     if cached:
         return cache.get("tree")
     else:
@@ -122,7 +120,7 @@ def get_tree(url, use_cache=True, syntax=_idlparser.WEBKIT_SYNTAX):
 def get_idl_file(tree):
     return _IDLFile(tree)
     
-def list_modules(idl_file):
+def list_module_ids(idl_file):
     return (m.id for m in idl_file.modules)
 
 def _iter_uniq(seq):
@@ -137,21 +135,26 @@ def list_interface_ids(idl_module):
 def list_typedef_ids(idl_module):
     return _iter_uniq((t.id, t.type.id) for t in idl_module.typeDefs)
 
+def list_enum_ids(idl_module):
+    return _iter_uniq((t.id, "\n  "+"\n  ".join(t.values))
+                      for t in idl_module.enums)
+
 def get_modules_by_ids(idl_file, ids):
     return (m for m in idl_file.modules if m.id in ids)
 
 def get_interfaces(idl_module):
     choices = _OrderedDict()
     for interface in idl_module.interfaces:
-        if interface.id in choices:
-            choices[interface.id].append(interface)
-        else:
-            choices[interface.id] = [interface]
+        choices.setdefault(interface.id, list()).append(interface)
     for vals in choices.itervalues():
-        if len(vals) == 1:
-            yield vals[0]
-        else:
-            yield vals[-1]
+        yield vals[-1]
+
+def get_enums(idl_module):
+    choices = _OrderedDict()
+    for enum in idl_module.enums:
+        choices.setdefault(enum.id, list()).append(enum)
+    for vals in choices.itervalues():
+        yield vals[-1]
 
 def _print_seq(seq, func, format_func=(lambda a: a)):
     if len(seq) == 1:
@@ -173,7 +176,38 @@ _syntax = {
   "FREMONTCUT_SYNTAX": _idlparser.FREMONTCUT_SYNTAX
 }
 
-def main():
+def main(idl_uri=None, cache=None, list_modules=None, list_interfaces=None,
+         list_typedefs=None, list_enums=None, modules=None, syntax=None):
+    tree = get_tree(idl_uri, use_cache=cache, 
+                    syntax=_syntax[syntax[0]])
+    
+    idl_file = get_idl_file(tree)
+    
+    if modules:
+        mods = list(get_modules_by_ids(idl_file, modules))
+    else:
+        try:
+            mods = idl_file.modules
+        except AttributeError:
+            mods = [idl_file] # use global module
+    
+    if list_modules:
+        print("\n".join(list_module_ids(idl_file)))
+    elif list_interfaces:
+        _print_seq(mods, list_interface_ids)
+    elif list_typedefs:
+        _print_seq(mods, list_typedef_ids, lambda a: " ".join(a))
+    elif list_enums:
+        _print_seq(mods, list_enum_ids, lambda a: " ".join(a))
+    else:
+        if len(mods) > 1:
+            print("Error: Multiple modules. Use --list-modules"
+                  " to list available modules, -m to specify.", 
+                  file=_sys.stderr)
+            return 100
+        print(_format_file(idl_uri, get_interfaces(mods[0]), get_enums(mods[0])))
+            
+def getArgParser():
     parser = _argparse.ArgumentParser(
       description="Generates Closure Compiler compatible externs "
                   "from IDL files.")
@@ -191,38 +225,16 @@ def main():
                         help="List interfaces.")
     parser.add_argument("--list-typedefs", action="store_true",
                         help="List typedefs.")
+    parser.add_argument("--list-enums", action="store_true",
+                        help="List enumerations.")
     
     # parameters
     parser.add_argument("-m", "--module", action="append", dest="modules",
                         metavar="MODULE")
     parser.add_argument("--syntax", default=["WEBIDL_SYNTAX"], nargs=1,
                         choices=_syntax.keys())
-    
-    args = parser.parse_args()
-    
-    tree = get_tree(args.idl_uri, use_cache=args.cache, 
-                    syntax=_syntax[args.syntax[0]])
-    
-    idl_file = get_idl_file(tree)
-    
-    mods = (list(get_modules_by_ids(idl_file, args.modules)) 
-            if args.modules is not None else idl_file.modules)
-    
-    if args.list_modules:
-        print("\n".join(list_modules(idl_file)))
-    elif args.list_interfaces:
-        _print_seq(mods, list_interface_ids)
-    elif args.list_typedefs:
-        _print_seq(mods, list_typedef_ids, lambda a: " ".join(a))
-    else:
-        if len(mods) > 1:
-            print("Error: Multiple modules. Use --list-modules"
-                  " to list available modules, -m to specify.", 
-                  file=_sys.stderr)
-            return 100
-        print(_format_file(args.idl_uri, get_interfaces(mods[0])))
-            
-    
+    return parser
 
 if __name__ == "__main__":
-    _sys.exit(main())
+    args = getArgParser().parse_args()
+    _sys.exit(main(**vars(args)))

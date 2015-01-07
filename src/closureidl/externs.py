@@ -109,9 +109,25 @@ def format_interface(idl_interface):
         yield format_method(idl_interface.javascript_binding_name, oper)
 
 @_join("\n")
-def format_file(url, idl_interfaces):
+def format_enum(idl_enum):
+    lines = ["@enum {number|string}"]
+    yield format_comment_block(lines)
+    yield "%s = {" % idl_enum.id
+    last_idx = len(idl_enum.values) - 1
+    for idx,val in enumerate(idl_enum.values):
+        val_name = val.replace('"', '').split('::')[-1]
+        yield "  %s: ''" % val_name + (',' if idx != last_idx else '')
+    yield '};'
+
+@_join("\n")
+def format_file(url, idl_interfaces, idl_enums):
     yield format_fileoverview(url)
     yield "\n"
     for interface in idl_interfaces:
         yield format_interface(interface)
         yield "\n"
+    if idl_enums is not None:
+        for enum in idl_enums:
+            yield format_enum(enum)
+            yield "\n"
+
