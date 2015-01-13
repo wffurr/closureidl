@@ -55,10 +55,15 @@ def format_fileoverview(url):
 
 @_join("\n")
 def format_attribute(interface_name, idl_attribute):
-    lines = ["@type {%s}" % get_type_name(idl_attribute)]
+    lines = ["@param {%s} %s" % (get_type_name(idl_attribute),
+                                 idl_attribute.id.lower())]
     yield format_comment_block(lines)
-    # TODO(wfurr): webidl binder has wrapped objects with get_attr and set_attr
-    yield "%s.prototype.%s;" % (interface_name, idl_attribute.id)
+    yield "%s.prototype.set_%s = function(%s) {};" % (interface_name,
+                                                      idl_attribute.id,
+                                                      idl_attribute.id.lower())
+    lines = ["@return {%s}" % get_type_name(idl_attribute)]
+    yield format_comment_block(lines)
+    yield "%s.prototype.get_%s = function() {};" % (interface_name, idl_attribute.id)
 
 @_join("\n")
 def format_constant(interface_name, idl_constant):
