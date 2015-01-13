@@ -57,6 +57,7 @@ def format_fileoverview(url):
 def format_attribute(interface_name, idl_attribute):
     lines = ["@type {%s}" % get_type_name(idl_attribute)]
     yield format_comment_block(lines)
+    # TODO(wfurr): webidl binder has wrapped objects with get_attr and set_attr
     yield "%s.prototype.%s;" % (interface_name, idl_attribute.id)
 
 @_join("\n")
@@ -69,6 +70,8 @@ def format_function_def(arg_names):
     return "function(%s) {}" % ", ".join(arg_names)
 
 def format_params(idl_arguments):
+    # TODO(wfurr) modify closureidl to figure out why it truncates
+    # input_InputType
     for idl_arg in idl_arguments:
         yield "@param {%s} %s" % (get_type_name(idl_arg), idl_arg.id)
 
@@ -78,6 +81,7 @@ def format_method(interface_name, idl_operation):
     if idl_operation.type.id != "void":
         lines = _chain(lines, ["@return {%s}" % get_type_name(idl_operation)])
     
+    # TODO(wfurr): omit comment block for void functions with no parameters
     yield format_comment_block(lines)
     
     method_name = idl_operation.id
@@ -87,9 +91,11 @@ def format_method(interface_name, idl_operation):
 
 @_join("\n")
 def format_interface(idl_interface):
+    # TODO(wfurr): modify closureidl to add arguments to constructor
     lines = ["@constructor"]
     parents = idl_interface.parents
     if len(parents) > 0:
+        # TODO(wfurr): y u no work?
         lines.append("@extends {%s}\n" % get_type_name(parents[0]))
         for parent in parents[1:]:
             lines.append("@implements {%s}\n" % get_type_name(parent))
@@ -110,13 +116,13 @@ def format_interface(idl_interface):
 
 @_join("\n")
 def format_enum(idl_enum):
-    lines = ["@enum {number|string}"]
+    lines = ["@enum"]
     yield format_comment_block(lines)
-    yield "%s = {" % idl_enum.id
+    yield "var %s = {" % idl_enum.id
     last_idx = len(idl_enum.values) - 1
     for idx,val in enumerate(idl_enum.values):
-        val_name = val.replace('"', '').split('::')[-1]
-        yield "  %s: ''" % val_name + (',' if idx != last_idx else '')
+        val_name = val.replace('"', '').split('::')[-1].upper()
+        yield "  %s: %d" % (val_name, idx) + (',' if idx != last_idx else '')
     yield '};'
 
 @_join("\n")
